@@ -1,6 +1,7 @@
 package net.reldo.taskstracker;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.inject.Binder;
@@ -95,7 +96,6 @@ public class TasksTrackerPlugin extends Plugin
 	private final Map<Skill, Integer> oldExperience = new EnumMap<>(Skill.class);
 
 	@Inject	@Named("runelite.version") private String runeliteVersion;
-	@Inject private Gson gson;
 	@Inject	private Client client;
 	@Inject	private SpriteManager spriteManager;
 	@Inject	private PluginManager pluginManager;
@@ -250,7 +250,6 @@ public class TasksTrackerPlugin extends Plugin
 
 			@Override
 			public void onFailure(Call call, IOException e) {
-				e.printStackTrace();
 				log.error("Authentication failed: " + e.getMessage());
 			}
 			@Override
@@ -497,34 +496,27 @@ public class TasksTrackerPlugin extends Plugin
 		}
 		return token;
 	}
-	public void exportData()
-	{
-		try
-		{
-			if (latestExportedJson == null || latestExportedJson.isEmpty())
-			{
+	public void exportData() {
+		try {
+			if (latestExportedJson == null || latestExportedJson.isEmpty()) {
 				throw new IllegalStateException("No exported data available. Please copy data to the clipboard first.");
 			}
+
 			String token = getToken();
 			String username = config.username();
 			String apiUrl = "http://localhost:8080/api/plugin-sync";
-			Map<String, Object> exportedData = Map.of("data", latestExportedJson);
+
 			System.out.println("Exported JSON: " + latestExportedJson);
 
 			CompletableFuture.runAsync(() -> {
-				boolean success = HttpUtil.sendPayloadToApi(apiUrl, username, token, exportedData);
-				if (success)
-				{
+				boolean success = HttpUtil.sendPayloadToApi(apiUrl, gson, username, token, latestExportedJson);
+				if (success) {
 					System.out.println("Exported data successfully.");
-				}
-				else
-				{
+				} else {
 					System.err.println("Failed to export data.");
 				}
 			});
-		}
-		catch (IllegalStateException e)
-		{
+		} catch (IllegalStateException e) {
 			System.err.println(e.getMessage());
 		}
 	}
@@ -604,22 +596,18 @@ public class TasksTrackerPlugin extends Plugin
 		return allTasksFuture.thenApply(v -> true);
 	}
 
-	private String getCurrentTaskTypeExportJson()
-	{
-		TaskType taskType = taskService.getCurrentTaskType();
-		Gson gson = this.gson.newBuilder()
+	private final Gson gson = new GsonBuilder()
 			.excludeFieldsWithoutExposeAnnotation()
 			.registerTypeAdapter(float.class, new LongSerializer())
 			.create();
 
-		if (taskType == null)
-		{
+	private String getCurrentTaskTypeExportJson() {
+		TaskType taskType = taskService.getCurrentTaskType();
+		if (taskType == null) {
 			String error = "Cannot export to JSON; no task type selected.";
 			log.error(error);
 			return error;
-		}
-		else
-		{
+		} else {
 			Export export = new Export(taskType, taskService.getTasks(), runeliteVersion, client);
 			return gson.toJson(export);
 		}
