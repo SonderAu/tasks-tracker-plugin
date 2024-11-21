@@ -8,7 +8,39 @@ import net.runelite.client.config.ConfigItem;
 @ConfigGroup(TasksTrackerPlugin.CONFIG_GROUP_NAME)
 public interface TasksTrackerConfig extends Config
 {
-	@ConfigItem(
+    @ConfigItem(
+            keyName = "serverUrl",
+            name = "Server URL",
+            position = 0,
+            description = "Enter the URL of the server to send plugin data."
+
+    )
+    default String serverUrl() {
+        return "https://osleague.tools/api";
+    }
+
+    @ConfigItem(
+            keyName = "username",
+            name = "Username",
+            position = 1,
+            description = "Enter the username for authentication."
+    )
+    default String username() {
+        return ""; // Default username, change as needed
+    }
+
+    @ConfigItem(
+            keyName = "password",
+            name = "Password",
+            position = 2,
+            secret = true,
+            description = "Enter the password for authentication."
+    )
+    default String password() {
+        return ""; // Default password, change as needed
+    }
+
+    @ConfigItem(
 		position = 10,
 		keyName = "untrackUponCompletion",
 		name = "Untrack Tasks Upon Completion",

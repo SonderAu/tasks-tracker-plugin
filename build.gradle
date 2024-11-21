@@ -25,6 +25,8 @@ dependencies {
 
     implementation group: 'com.google.inject.extensions', name: 'guice-assistedinject', version:'4.1.0'
     testImplementation group: 'com.squareup.okhttp3', name: 'mockwebserver', version: '3.14.9'
+
+    implementation 'com.google.code.gson:gson:2.8.9'
 }
 
 group = '${group_id}'
