@@ -34,6 +34,8 @@ import net.reldo.taskstracker.data.TasksSummary;
 import net.reldo.taskstracker.data.TrackerConfigStore;
 import net.reldo.taskstracker.data.jsondatastore.reader.DataStoreReader;
 import net.reldo.taskstracker.data.jsondatastore.reader.HttpDataStoreReader;
+import net.reldo.taskstracker.data.reldo.ReldoAuth;
+import net.reldo.taskstracker.data.reldo.ReldoExport;
 import net.reldo.taskstracker.data.reldo.ReldoImport;
 import net.reldo.taskstracker.data.task.TaskFromStruct;
 import net.reldo.taskstracker.data.task.TaskService;
@@ -109,10 +111,8 @@ public class TasksTrackerPlugin extends Plugin
 	@Inject private TaskService taskService;
 	@Inject private FilterService filterService;
 	@Inject private TaskPanelFactory taskPanelFactory;
-
-	@Inject	private OkHttpClient httpClient;
-
-
+	@Inject	private ReldoAuth reldoAuth;
+	@Inject	private ReldoExport reldoExport;
 
 	@Override
 	public void configure(Binder binder)
@@ -127,6 +127,16 @@ public class TasksTrackerPlugin extends Plugin
 	TasksTrackerConfig getConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(TasksTrackerConfig.class);
+	}
+
+	@Provides
+	ReldoAuth provideReldoAuth(ConfigManager configManager, TasksTrackerConfig config) {
+		return new ReldoAuth(configManager, config, new OkHttpClient(), CONFIG_GROUP_NAME);
+	}
+
+	@Provides
+	ReldoExport provideReldoExport(ConfigManager configManager, TasksTrackerConfig config, Gson gson, ReldoAuth reldoAuth) {
+		return new ReldoExport(configManager, config, gson, reldoAuth);
 	}
 
 	@Override
@@ -164,11 +174,24 @@ public class TasksTrackerPlugin extends Plugin
 		String username = config.username();
 		String password = config.password();
 
-		if (!username.isEmpty() && !password.isEmpty()) {
-			authenticateUser(username, password);
-		} else {
-			log.warn("Username or password not set in config.");
+		if (!username.isEmpty() && !password.isEmpty())
+		{
+			try
+			{
+			reldoAuth.authenticateUser(username, password);
+			String token = reldoAuth.getToken();
+			log.info("Token retrieved during startup: {}", token);
+			}
+			catch (IllegalStateException e)
+			{
+			log.warn("Token unavailable: {}", e.getMessage());
+			}
 		}
+		else
+		{
+		log.warn("Username or password not set in config. Authentication skipped.");
+		}
+
 		log.info("Tasks Tracker started!");
 	}
 
@@ -237,38 +260,6 @@ public class TasksTrackerPlugin extends Plugin
 		{
 			pluginPanel.redraw();
 		}
-	}
-	private void authenticateUser(String username, String password) {
-		String authToken;
-		String json = String.format("{\"username\":\"%s\", \"password\":\"%s\"}", username, password);
-		RequestBody body = RequestBody.create(MediaType.parse("application/json"), json);
-		Request request = new Request.Builder()
-				.url(config.serverUrl() + "/api/login")  // Adjust endpoint as needed
-				.post(body)
-				.build();
-		httpClient.newCall(request).enqueue(new Callback() {
-
-			@Override
-			public void onFailure(Call call, IOException e) {
-				log.error("Authentication failed: " + e.getMessage());
-			}
-			@Override
-			public void onResponse(Call call, Response response) throws IOException {
-				try {
-					if (!response.isSuccessful()) {
-						throw new IOException("Unexpected code " + response);
-					}
-					String responseBody = response.body().string();
-					System.out.println("Response from server: " + responseBody);
-					JsonObject jsonResponse = JsonParser.parseString(responseBody).getAsJsonObject();
-					String token = jsonResponse.get("token").getAsString();
-					System.out.println("Extracted Token: " + token);
-					configManager.setConfiguration(CONFIG_GROUP_NAME, "authToken", token);
-				} finally {
-					// Ensure the response body is closed else this leaks.
-					response.close();
-				}}
-		});
 	}
 
 	@Subscribe
@@ -473,52 +464,23 @@ public class TasksTrackerPlugin extends Plugin
 				.build());
 	}
 
-	public void copyJsonToClipboard()
-	{
+	public void copyJsonToClipboard() {
 		clientThread.invokeLater(() -> {
-			// Not worried with this complexity on the client thread because it's from an infrequent button press
+			// Get current task type export JSON
 			String json = getCurrentTaskTypeExportJson();
-			latestExportedJson = json;
 			final StringSelection stringSelection = new StringSelection(json);
 			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
-			String message = "Copied " + taskService.getCurrentTaskType().getName() + " data to clipboard!";
-			showMessageBox("Data Exported!", message, JOptionPane.INFORMATION_MESSAGE, true);
-			exportData();
-		});
-	}
-	private String latestExportedJson;
-	private String getToken()
-	{
-		String token = configManager.getConfiguration(CONFIG_GROUP_NAME, "authToken");
-		if (token == null || token.isEmpty())
-		{
-			throw new IllegalStateException("No token available. Please log in first.");
-		}
-		return token;
-	}
-	public void exportData() {
-		try {
-			if (latestExportedJson == null || latestExportedJson.isEmpty()) {
-				throw new IllegalStateException("No exported data available. Please copy data to the clipboard first.");
+
+			// Export the data using ReldoExport
+			try {
+				reldoExport.exportData(json);
+			} catch (Exception e) {
+				log.error("Failed to export data: ", e);
 			}
 
-			String token = getToken();
-			String username = config.username();
-			String apiUrl = "http://localhost:8080/api/plugin-sync";
-
-			System.out.println("Exported JSON: " + latestExportedJson);
-
-			CompletableFuture.runAsync(() -> {
-				boolean success = HttpUtil.sendPayloadToApi(apiUrl, gson, username, token, latestExportedJson);
-				if (success) {
-					System.out.println("Exported data successfully.");
-				} else {
-					System.err.println("Failed to export data.");
-				}
-			});
-		} catch (IllegalStateException e) {
-			System.err.println(e.getMessage());
-		}
+			String message = "Copied " + taskService.getCurrentTaskType().getName() + " data to clipboard!";
+			showMessageBox("Data Exported!", message, JOptionPane.INFORMATION_MESSAGE, true);
+		});
 	}
 
 	private void forceVarpUpdate()
